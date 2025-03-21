@@ -6,9 +6,11 @@ import { UsuarioModule } from './usuario/usuario.module';
 import { ChamadoModule } from './chamado/chamado.module';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ConfigModule } from '@nestjs/config';
+import { ImportacaoModule } from './importacao/importacao.module';
+import { InteracoesModule } from './interacoes/interacoes.module';
 
 @Module({
-  imports: [PrismaModule, UsuarioModule, ChamadoModule, MongooseModule.forRoot(process.env.MONGO_URI || ""), ConfigModule.forRoot()],
+  imports: [PrismaModule, UsuarioModule, ChamadoModule, MongooseModule.forRoot(process.env.MONGO_URI || ""), ConfigModule.forRoot(), ImportacaoModule, InteracoesModule],
   controllers: [AppController],
   providers: [AppService],
 })
