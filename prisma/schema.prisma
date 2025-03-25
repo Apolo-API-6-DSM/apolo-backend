@@ -23,4 +23,6 @@ model Chamado {
   tipo_importacao    String
   status            String
   data_abertura      DateTime
+  tipo_documento     String? 
+  sentimento_cliente String?
 }
