@@ -40,4 +40,10 @@ export class ChamadoController {
   ): Promise<Chamado[]> {
     return this.chamadoService.listarPorTipoImportacao(tipo_importacao);
   }
+
+  @Post('atualizar-emocoes')
+  async atualizarEmocoes(@Body('chamados') chamados: any[]): Promise<{ message: string }> {
+    await this.chamadoService.atualizarEmocoes(chamados);
+    return { message: 'Emoções atualizadas com sucesso!' };
+  }
 }

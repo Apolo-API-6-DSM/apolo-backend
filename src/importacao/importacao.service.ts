@@ -12,7 +12,7 @@ moment.locale('pt-br');
 @Injectable()
 export class ImportacaoService {
   private readonly logger = new Logger(ImportacaoService.name);
-  private readonly PYTHON_API_URL = 'http://localhost:8000/api/v1/process';
+  private readonly PYTHON_API_URL_FASTAPI = 'http://localhost:8000/api/v1/process';
   
   constructor(
     private prisma: PrismaService,
@@ -51,7 +51,6 @@ export class ImportacaoService {
 
     for (const item of dados) {
       try {
-        // Processamento do MySQL (mantido igual)
         const dataAbertura = moment(item['Criado'], 'DD/MMM/YY hh:mm A').toDate();
         const ultimaAtualizacao = moment(item['Categoria do status alterada'], 'DD/MMM/YY hh:mm A').toDate();
 
@@ -80,7 +79,6 @@ export class ImportacaoService {
           }
         });
 
-        // Salva no MongoDB
         await this.interacoesService.criarInteracao(
           item['ID da item'],
           item['Descrição']?.trim() || 'Nenhuma descrição',
@@ -95,33 +93,33 @@ export class ImportacaoService {
       }
     }
 
-    // Envia apenas os IDs para o Python após salvar tudo
     if (idsProcessados.length > 0) {
-      await this.enviarIdsParaPython(idsProcessados);
+      this.enviarIdsParaFastAPI(idsProcessados); 
     }
   }
 
-  private async enviarIdsParaPython(ids: string[]): Promise<void> {
-    try {
-      // Opção 1: Enviar como objeto
-      const response = await axios.post(this.PYTHON_API_URL, {
-        ids: ids
-      }, {
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        // timeout: 1200000 //2 minuto
-      });
-  
-      // Opção 2: Enviar como array direto
-      // const response = await axios.post(this.PYTHON_API_URL, ids, {...});
-      
-      this.logger.debug('Resposta do Python:', response.data);
-    } catch (error) {
-      this.logger.error('Erro ao enviar IDs para Python:', {
-        error: error.response?.data || error.message,
-        status: error.response?.status
-      });
+  private async enviarIdsParaFastAPI(ids: string[]): Promise<void> {
+    const BATCH_SIZE = 100;
+
+    for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+        const batch = ids.slice(i, i + BATCH_SIZE);
+
+        try {
+            axios.post(this.PYTHON_API_URL_FASTAPI, { ids: batch })
+                .then(response => {
+                    if (response.status === 200) {
+                        this.logger.log(`Lote de ${batch.length} IDs enviado com sucesso!`);
+                    } else {
+                        this.logger.error(`Erro no envio do lote: ${response.status} - ${response.statusText}`);
+                    }
+                })
+                .catch(error => {
+                    this.logger.error(`Erro ao enviar lote de IDs para FastAPI: ${error.message}`);
+                });
+
+        } catch (error) {
+            this.logger.error(`Erro ao enviar IDs para FastAPI: ${error.message}`);
+        }
     }
-  }
+}
 }
