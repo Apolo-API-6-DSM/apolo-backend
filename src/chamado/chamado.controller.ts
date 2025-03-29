@@ -1,10 +1,11 @@
-import { Controller, Get, Post, Body, Query, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, ParseIntPipe, Param, Logger, NotFoundException } from '@nestjs/common';
 import { ChamadoService } from './chamado.service';
 import { Chamado } from '@prisma/client';
 
 @Controller('chamados')
 export class ChamadoController {
   constructor(private readonly chamadoService: ChamadoService) {}
+  private readonly logger = new Logger(ChamadoController.name);
 
   @Post()
   criarChamado(@Body() body: any) {
@@ -45,5 +46,26 @@ export class ChamadoController {
   async atualizarEmocoes(@Body('chamados') chamados: any[]): Promise<{ message: string }> {
     await this.chamadoService.atualizarEmocoes(chamados);
     return { message: 'Emoções atualizadas com sucesso!' };
+  }
+
+  @Get('/:id')
+  async buscarChamadoPorId(@Param('id') id: string) {
+    try {
+      this.logger.log(`Buscando chamado com ID: ${id}`);
+
+      const chamado = await this.chamadoService.buscarChamadoPorId(id);
+
+      if (!chamado) {
+        throw new NotFoundException(`Chamado com ID ${id} não encontrado.`);
+      }
+
+      return {
+        status: 'success',
+        chamado,
+      };
+    } catch (error) {
+      this.logger.error(`Erro ao buscar chamado ${id}: ${error.message}`);
+      throw error;
+    }
   }
 }
