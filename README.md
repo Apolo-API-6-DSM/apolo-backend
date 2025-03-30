@@ -58,6 +58,7 @@ Antes de começar, certifique-se de ter instalado em sua máquina:
     npm run start:dev ou npm run start
 
 ## Estrutura do projeto
+```text
 apolo-backend/
 ├── dist/                  # Código compilado (TypeScript → JavaScript)
 ├── node_modules/          # Dependências do Node.js
