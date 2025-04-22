@@ -13,11 +13,11 @@ moment.locale('pt-br');
 export class ImportacaoService {
   private readonly logger = new Logger(ImportacaoService.name);
   private readonly PYTHON_API_URL_FASTAPI = 'http://localhost:8000/api/v1/process';
-  
+
   constructor(
     private prisma: PrismaService,
     private interacoesService: InteracoesService
-  ) {}
+  ) { }
 
   async importarArquivo(filePath: string): Promise<void> {
     const resultados: Record<string, any>[] = [];
@@ -63,7 +63,7 @@ export class ImportacaoService {
           where: { id_importado: item['ID da item'] },
           update: {
             titulo: item['Resumo'],
-            status: item['Status'],
+            status: this.padronizarStatus(item['Status']),
             data_abertura: dataAbertura,
             ultima_atualizacao: ultimaAtualizacao,
             responsavel: item['Responsável']
@@ -71,7 +71,7 @@ export class ImportacaoService {
           create: {
             id_importado: item['ID da item'],
             titulo: item['Resumo'],
-            status: item['Status'],
+            status: this.padronizarStatus(item['Status']),
             data_abertura: dataAbertura,
             ultima_atualizacao: ultimaAtualizacao,
             responsavel: item['Responsável'],
@@ -94,7 +94,7 @@ export class ImportacaoService {
     }
 
     if (idsProcessados.length > 0) {
-      this.enviarIdsParaFastAPI(idsProcessados); 
+      this.enviarIdsParaFastAPI(idsProcessados);
     }
   }
 
@@ -102,24 +102,44 @@ export class ImportacaoService {
     const BATCH_SIZE = 100;
 
     for (let i = 0; i < ids.length; i += BATCH_SIZE) {
-        const batch = ids.slice(i, i + BATCH_SIZE);
+      const batch = ids.slice(i, i + BATCH_SIZE);
 
-        try {
-            axios.post(this.PYTHON_API_URL_FASTAPI, { ids: batch })
-                .then(response => {
-                    if (response.status === 200) {
-                        this.logger.log(`Lote de ${batch.length} IDs enviado com sucesso!`);
-                    } else {
-                        this.logger.error(`Erro no envio do lote: ${response.status} - ${response.statusText}`);
-                    }
-                })
-                .catch(error => {
-                    this.logger.error(`Erro ao enviar lote de IDs para FastAPI: ${error.message}`);
-                });
+      try {
+        axios.post(this.PYTHON_API_URL_FASTAPI, { ids: batch })
+          .then(response => {
+            if (response.status === 200) {
+              this.logger.log(`Lote de ${batch.length} IDs enviado com sucesso!`);
+            } else {
+              this.logger.error(`Erro no envio do lote: ${response.status} - ${response.statusText}`);
+            }
+          })
+          .catch(error => {
+            this.logger.error(`Erro ao enviar lote de IDs para FastAPI: ${error.message}`);
+          });
 
-        } catch (error) {
-            this.logger.error(`Erro ao enviar IDs para FastAPI: ${error.message}`);
-        }
+      } catch (error) {
+        this.logger.error(`Erro ao enviar IDs para FastAPI: ${error.message}`);
+      }
     }
-}
+  }
+
+  private padronizarStatus(statusOriginal: string): string {
+    const status = statusOriginal.trim().toLowerCase();
+  
+    if (['resolvido', 'concluído(a)'].includes(status)) {
+      return 'Concluído';
+    }
+  
+    if (['cancelado'].includes(status)) {
+      return 'Cancelado';
+    }
+  
+    if (
+      ['em andamento', 'sob análise', 'itens pendentes', 'aguardando pelo suporte'].includes(status)
+    ) {
+      return 'Em aberto';
+    }
+  
+    return 'Em aberto';
+  }
 }
