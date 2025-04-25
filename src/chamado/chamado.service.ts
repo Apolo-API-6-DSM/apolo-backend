@@ -111,22 +111,31 @@ export class ChamadoService {
       const chamado = await this.prisma.chamado.findUnique({
         where: { id_importado: id },
       });
-
+  
       if (!chamado) {
         this.logger.warn(`Chamado com ID ${id} não encontrado no banco relacional.`);
         throw new NotFoundException(`Chamado com ID ${id} não encontrado.`);
       }
-
+  
       if (!this.db) {
         await this.connectToMongo();
       }
-
-      const interacao = await this.db.collection('interacoes_processadas').findOne({ chamadoId: id });
-
-      if (interacao && interacao.mensagem_limpa) {
-        chamado['mensagem_limpa'] = interacao.mensagem_limpa;
+  
+      if (chamado.tipo_importacao === 'Jira') {
+        const interacao = await this.db.collection('interacoes_processadas').findOne({ chamadoId: id });
+  
+        if (interacao && interacao.mensagem_limpa) {
+          chamado['mensagem_limpa'] = interacao.mensagem_limpa;
+        }
+      } else if (chamado.tipo_importacao === 'Alternativo') {
+        const interacaoAlternativa = await this.db.collection('interacoes_alternativas').findOne({ chamadoId: id });
+  
+        if (interacaoAlternativa) {
+          chamado['descricao'] = interacaoAlternativa.descricao || null;
+          chamado['solucao'] = interacaoAlternativa.solucao || null;
+        }
       }
-
+  
       return chamado;
     } catch (error) {
       this.logger.error(`Erro ao buscar chamado ${id}: ${error.message}`);
