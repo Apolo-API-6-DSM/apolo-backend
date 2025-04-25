@@ -43,10 +43,14 @@ export class ChamadoController {
   }
 
   @Post('atualizar-emocoes')
-  async atualizarEmocoes(@Body('chamados') chamados: any[]): Promise<{ message: string }> {
-    await this.chamadoService.atualizarEmocoes(chamados);
+  async atualizarEmocoes(
+    @Body('chamados') chamados: any[],
+    @Body('nomeArquivoId') nomeArquivoId: number
+  ): Promise<{ message: string }> {
+    await this.chamadoService.atualizarEmocoes(chamados, nomeArquivoId);
     return { message: 'Emoções atualizadas com sucesso!' };
   }
+
 
   @Get('/:id')
   async buscarChamadoPorId(@Param('id') id: string) {

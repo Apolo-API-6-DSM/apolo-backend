@@ -25,4 +25,14 @@ model Chamado {
   data_abertura      DateTime
   tipo_documento     String? 
   sentimento_cliente String?
+  nome_arquivo       NomeArquivo? @relation(fields: [nomeArquivoId], references: [id])
+  nomeArquivoId      Int? 
+}
+
+model NomeArquivo {
+  id        Int       @id @default(autoincrement())
+  nome      String
+  dataCriacao DateTime @default(now())
+  status  String
+  chamados       Chamado[]
 }

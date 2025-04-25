@@ -80,7 +80,7 @@ export class ChamadoService {
     });
   }
 
-  async atualizarEmocoes(chamados: any[]): Promise<ChamadoResultado[]> { 
+  async atualizarEmocoes(chamados: any[], nomeArquivoId: number): Promise<ChamadoResultado[]> {
     const resultados: ChamadoResultado[] = [];
     for (const chamado of chamados) {
       try {
@@ -101,6 +101,15 @@ export class ChamadoService {
         this.logger.error(`Erro ao atualizar chamado ${chamado.chamadoId}: ${error.message}`);
         resultados.push({ chamadoId: chamado.chamadoId, status: 'erro', error: error.message });
       }
+    }
+    try {
+      await this.prisma.nomeArquivo.update({
+        where: { id: nomeArquivoId },
+        data: { status: "CONCLUIDO" }
+      });
+      this.logger.log(`Status do arquivo ${nomeArquivoId} atualizado para CONCLUIDO.`);
+    } catch (error) {
+      this.logger.error(`Erro ao atualizar status do arquivo ${nomeArquivoId} para CONCLUIDO: ${error.message}`);
     }
 
     return resultados;
