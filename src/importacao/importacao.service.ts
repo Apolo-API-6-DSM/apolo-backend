@@ -156,7 +156,7 @@ export class ImportacaoService {
   private padronizarStatus(statusOriginal: string): string {
     const status = statusOriginal.trim().toLowerCase();
   
-    if (['resolvido', 'concluído(a)'].includes(status)) {
+    if (['resolvido', 'concluído(a)', 'fechado'].includes(status)) {
       return 'Concluído';
     }
   
@@ -165,11 +165,144 @@ export class ImportacaoService {
     }
   
     if (
-      ['em andamento', 'sob análise', 'itens pendentes', 'aguardando pelo suporte'].includes(status)
+      ['em andamento', 'sob análise', 'itens pendentes', 'aguardando pelo suporte', 'processando (atribuído)'].includes(status)
     ) {
       return 'Em aberto';
     }
   
     return 'Em aberto';
+  }
+
+  async importarArquivoAlternativo(filePath: string): Promise<void> {
+    const resultados: Record<string, any>[] = [];
+  
+    return new Promise((resolve, reject) => {
+      fs.createReadStream(filePath)
+        .pipe(csv({ separator: ';' }))
+        .on('data', (data: Record<string, any>) => resultados.push(data))
+        .on('end', async () => {
+          try {
+            const colunas = [
+              'ID',
+              'Título',
+              'Status',
+              'Data de abertura',
+              'Última atualização',
+              'Descrição',
+              'Solução - Solução',
+              'Atribuído para - Técnico'
+            ];
+  
+            if (!colunas.every(col => col in resultados[0])) {
+              throw new BadRequestException('O arquivo não está no formato esperado do CSV Alternativo.');
+            }
+  
+            const chamadosParaIA: { chamadoId: string; descricao: string }[] = [];
+  
+            for (const item of resultados) {
+              try {
+                const idChamado = item['ID'];
+                const titulo = item['Título'] || 'Sem título';
+                const status = this.padronizarStatus(item['Status']);
+                const dataAbertura = moment(item['Data de abertura'], 'DD/MM/YYYY HH:mm').toDate();
+                const ultimaAtualizacao = moment(item['Última atualização'], 'DD/MM/YYYY HH:mm').toDate();
+                const responsavel = item['Atribuído para - Técnico'] || 'Não informado';
+                const descricao = (item['Descrição'] || '').trim();
+                const solucao = (item['Solução - Solução'] || '').trim();
+  
+                if (isNaN(dataAbertura.getTime())) {
+                  this.logger.warn(`Data inválida para o chamado ${idChamado}`);
+                  continue;
+                }
+  
+                await this.prisma.chamado.upsert({
+                  where: { id_importado: idChamado },
+                  update: {
+                    titulo,
+                    status,
+                    data_abertura: dataAbertura,
+                    ultima_atualizacao: ultimaAtualizacao,
+                    responsavel
+                  },
+                  create: {
+                    id_importado: idChamado,
+                    titulo,
+                    status,
+                    data_abertura: dataAbertura,
+                    ultima_atualizacao: ultimaAtualizacao,
+                    responsavel,
+                    tipo_importacao: 'Alternativo'
+                  }
+                });
+  
+                await this.interacoesService.criarInteracaoAlternativa(
+                  idChamado,
+                  descricao,
+                  solucao,
+                  'Alternativo',
+                  responsavel
+                );
+
+                const mensagemParaIA = `${descricao} ${solucao}`.trim();
+                if (mensagemParaIA) {
+                  chamadosParaIA.push({
+                    chamadoId: idChamado,
+                    descricao: mensagemParaIA
+                  });
+                }
+              } catch (error) {
+                this.logger.error(`Erro ao processar item ${item['ID']}`, error.stack);
+              }
+            }
+  
+            const BATCH_SIZE = 100;
+  
+            for (let i = 0; i < chamadosParaIA.length; i += BATCH_SIZE) {
+              const lote = chamadosParaIA.slice(i, i + BATCH_SIZE);
+  
+              try {
+                const response = await axios.post('http://localhost:8080/prever', {
+                  chamados: lote
+                }, {
+                  headers: { 'Content-Type': 'application/json' },
+                  timeout: 300_000
+                });
+  
+                this.logger.log(`Lote ${i / BATCH_SIZE + 1} enviado com sucesso à IA. Status: ${response.status}`);
+  
+                const resultados = response.data?.chamados || [];
+  
+                for (const resultado of resultados) {
+                  const { chamadoId, emocao, tipoChamado } = resultado;
+  
+                  if (!chamadoId) continue;
+  
+                  try {
+                    await this.prisma.chamado.updateMany({
+                      where: { id_importado: chamadoId },
+                      data: {
+                        sentimento_cliente: emocao,
+                        tipo_documento: tipoChamado
+                      }
+                    });
+  
+                    this.logger.log(`Chamado ${chamadoId} atualizado com emoção: ${emocao}, tipo: ${tipoChamado}`);
+                  } catch (error) {
+                    this.logger.error(`Erro ao atualizar chamado ${chamadoId}: ${error.message}`);
+                  }
+                }
+  
+              } catch (error) {
+                this.logger.error(`Erro ao enviar lote para IA: ${error.message}`);
+              }
+            }
+  
+            resolve();
+          } catch (error) {
+            reject(error);
+          }
+        })
+        .on('error', (error) => reject(error));
+    });
   }
 }

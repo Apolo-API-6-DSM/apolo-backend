@@ -5,7 +5,7 @@ import { Express } from 'express';
 
 @Controller('importacao')
 export class ImportacaoController {
-  constructor(private readonly importacaoService: ImportacaoService) {}
+  constructor(private readonly importacaoService: ImportacaoService) { }
 
   @Post('jira')
   @UseInterceptors(FileInterceptor('file'))
@@ -20,5 +20,16 @@ export class ImportacaoController {
     const filePath = file.path;
     await this.importacaoService.importarArquivo(filePath, body.fileName);
     return { message: 'Arquivo importado com sucesso!' };
+  }
+
+  @Post('alternativo')
+  @UseInterceptors(FileInterceptor('file'))
+  async importarAlternativo(@UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('Arquivo não enviado');
+    }
+
+    await this.importacaoService.importarArquivoAlternativo(file.path);
+    return { message: 'Arquivo alternativo importado com sucesso!' };
   }
 }
