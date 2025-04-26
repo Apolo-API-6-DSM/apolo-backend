@@ -4,7 +4,7 @@ import { Chamado } from '@prisma/client';
 
 @Controller('chamados')
 export class ChamadoController {
-  constructor(private readonly chamadoService: ChamadoService) {}
+  constructor(private readonly chamadoService: ChamadoService) { }
   private readonly logger = new Logger(ChamadoController.name);
 
   @Post()
@@ -71,5 +71,11 @@ export class ChamadoController {
       this.logger.error(`Erro ao buscar chamado ${id}: ${error.message}`);
       throw error;
     }
+  }
+
+  @Get('nome_arquivo/:nomeArquivoId')
+  async listarChamadosPorNomeArquivoId(@Param('nomeArquivoId', ParseIntPipe) nomeArquivoId: number) {
+    this.logger.log(`Listando chamados com NomeArquivoId: ${nomeArquivoId}`);
+    return await this.chamadoService.listarChamadosPorNomeArquivoId(nomeArquivoId);
   }
 }
