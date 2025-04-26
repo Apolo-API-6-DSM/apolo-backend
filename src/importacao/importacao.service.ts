@@ -19,8 +19,15 @@ export class ImportacaoService {
     private interacoesService: InteracoesService
   ) { }
 
-  async importarArquivo(filePath: string): Promise<void> {
+  async importarArquivo(filePath: string, fileName: string): Promise<void> {
     const resultados: Record<string, any>[] = [];
+
+    const arquivo = await this.prisma.nomeArquivo.create({
+      data: {
+        nome: fileName,
+        status: "PROCESSANDO"
+      }
+    });
 
     return new Promise((resolve, reject) => {
       fs.createReadStream(filePath)
@@ -29,15 +36,36 @@ export class ImportacaoService {
         .on('end', async () => {
           try {
             if (!this.validarFormato(resultados[0])) {
+              await this.prisma.nomeArquivo.update({
+                where: { id: arquivo.id },
+                data: { status: "Erro ao processar" }
+              });
               throw new BadRequestException('O arquivo não está no formato esperado do Jira');
             }
-            await this.salvarChamados(resultados);
+            await this.salvarChamados(resultados, arquivo.id);
+            // Atualiza status para concluído
+            await this.prisma.nomeArquivo.update({
+              where: { id: arquivo.id },
+              data: { status: "EM ANÁLISE" }
+            });
+
             resolve();
           } catch (error) {
+            // Em caso de erro, atualiza o status
+            await this.prisma.nomeArquivo.update({
+              where: { id: arquivo.id },
+              data: { status: "Erro ao processar" }
+            });
             reject(error);
           }
         })
-        .on('error', (error) => reject(error));
+        .on('error', async (error) => {
+          await this.prisma.nomeArquivo.update({
+            where: { id: arquivo.id },
+            data: { status: "Erro ao processar" }
+          });
+          reject(error);
+        });
     });
   }
 
@@ -46,7 +74,7 @@ export class ImportacaoService {
     return colunasEsperadas.every(coluna => coluna in primeiraLinha);
   }
 
-  async salvarChamados(dados: any[]): Promise<void> {
+  async salvarChamados(dados: any[], nomeArquivoId: number): Promise<void> {
     const idsProcessados: string[] = [];
 
     for (const item of dados) {
@@ -66,7 +94,8 @@ export class ImportacaoService {
             status: this.padronizarStatus(item['Status']),
             data_abertura: dataAbertura,
             ultima_atualizacao: ultimaAtualizacao,
-            responsavel: item['Responsável']
+            responsavel: item['Responsável'],
+            nomeArquivoId: nomeArquivoId
           },
           create: {
             id_importado: item['ID da item'],
@@ -75,7 +104,8 @@ export class ImportacaoService {
             data_abertura: dataAbertura,
             ultima_atualizacao: ultimaAtualizacao,
             responsavel: item['Responsável'],
-            tipo_importacao: 'Jira'
+            tipo_importacao: 'Jira',
+            nomeArquivoId: nomeArquivoId
           }
         });
 
@@ -143,8 +173,16 @@ export class ImportacaoService {
     return 'Em aberto';
   }
 
-  async importarArquivoAlternativo(filePath: string): Promise<void> {
+  async importarArquivoAlternativo(filePath: string, fileName: string): Promise<void> {
     const resultados: Record<string, any>[] = [];
+
+    const arquivo = await this.prisma.nomeArquivo.create({
+      data: {
+        nome: fileName,
+        status: "PROCESSANDO"
+      }
+    });
+
   
     return new Promise((resolve, reject) => {
       fs.createReadStream(filePath)
@@ -164,6 +202,10 @@ export class ImportacaoService {
             ];
   
             if (!colunas.every(col => col in resultados[0])) {
+              await this.prisma.nomeArquivo.update({
+                where: { id: arquivo.id },
+                data: { status: "Erro ao processar" }
+              });
               throw new BadRequestException('O arquivo não está no formato esperado do CSV Alternativo.');
             }
   
@@ -192,7 +234,8 @@ export class ImportacaoService {
                     status,
                     data_abertura: dataAbertura,
                     ultima_atualizacao: ultimaAtualizacao,
-                    responsavel
+                    responsavel,
+                    nomeArquivoId: arquivo.id
                   },
                   create: {
                     id_importado: idChamado,
@@ -201,7 +244,8 @@ export class ImportacaoService {
                     data_abertura: dataAbertura,
                     ultima_atualizacao: ultimaAtualizacao,
                     responsavel,
-                    tipo_importacao: 'Alternativo'
+                    tipo_importacao: 'Alternativo',
+                    nomeArquivoId: arquivo.id
                   }
                 });
   
@@ -226,6 +270,12 @@ export class ImportacaoService {
             }
   
             const BATCH_SIZE = 100;
+
+            // Atualiza status para concluído
+            await this.prisma.nomeArquivo.update({
+              where: { id: arquivo.id },
+              data: { status: "EM ANÁLISE" }
+            });
   
             for (let i = 0; i < chamadosParaIA.length; i += BATCH_SIZE) {
               const lote = chamadosParaIA.slice(i, i + BATCH_SIZE);
