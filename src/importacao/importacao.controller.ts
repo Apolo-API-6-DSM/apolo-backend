@@ -24,12 +24,14 @@ export class ImportacaoController {
 
   @Post('alternativo')
   @UseInterceptors(FileInterceptor('file'))
-  async importarAlternativo(@UploadedFile() file: Express.Multer.File) {
+  async importarAlternativo(
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: { fileName: string }  ) {
     if (!file) {
       throw new BadRequestException('Arquivo não enviado');
     }
 
-    await this.importacaoService.importarArquivoAlternativo(file.path);
+    await this.importacaoService.importarArquivoAlternativo(file.path, body.fileName);
     return { message: 'Arquivo alternativo importado com sucesso!' };
   }
 }

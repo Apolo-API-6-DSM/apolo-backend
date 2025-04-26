@@ -173,8 +173,16 @@ export class ImportacaoService {
     return 'Em aberto';
   }
 
-  async importarArquivoAlternativo(filePath: string): Promise<void> {
+  async importarArquivoAlternativo(filePath: string, fileName: string): Promise<void> {
     const resultados: Record<string, any>[] = [];
+
+    const arquivo = await this.prisma.nomeArquivo.create({
+      data: {
+        nome: fileName,
+        status: "PROCESSANDO"
+      }
+    });
+
   
     return new Promise((resolve, reject) => {
       fs.createReadStream(filePath)
@@ -194,6 +202,10 @@ export class ImportacaoService {
             ];
   
             if (!colunas.every(col => col in resultados[0])) {
+              await this.prisma.nomeArquivo.update({
+                where: { id: arquivo.id },
+                data: { status: "Erro ao processar" }
+              });
               throw new BadRequestException('O arquivo não está no formato esperado do CSV Alternativo.');
             }
   
@@ -222,7 +234,8 @@ export class ImportacaoService {
                     status,
                     data_abertura: dataAbertura,
                     ultima_atualizacao: ultimaAtualizacao,
-                    responsavel
+                    responsavel,
+                    nomeArquivoId: arquivo.id
                   },
                   create: {
                     id_importado: idChamado,
@@ -231,7 +244,8 @@ export class ImportacaoService {
                     data_abertura: dataAbertura,
                     ultima_atualizacao: ultimaAtualizacao,
                     responsavel,
-                    tipo_importacao: 'Alternativo'
+                    tipo_importacao: 'Alternativo',
+                    nomeArquivoId: arquivo.id
                   }
                 });
   
@@ -256,6 +270,12 @@ export class ImportacaoService {
             }
   
             const BATCH_SIZE = 100;
+
+            // Atualiza status para concluído
+            await this.prisma.nomeArquivo.update({
+              where: { id: arquivo.id },
+              data: { status: "EM ANÁLISE" }
+            });
   
             for (let i = 0; i < chamadosParaIA.length; i += BATCH_SIZE) {
               const lote = chamadosParaIA.slice(i, i + BATCH_SIZE);
