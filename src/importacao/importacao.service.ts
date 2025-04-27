@@ -293,7 +293,7 @@ export class ImportacaoService {
                 const resultados = response.data?.chamados || [];
   
                 for (const resultado of resultados) {
-                  const { chamadoId, emocao, tipoChamado } = resultado;
+                  const { chamadoId, emocao, tipoChamado, sumarizacao } = resultado;
   
                   if (!chamadoId) continue;
   
@@ -302,7 +302,8 @@ export class ImportacaoService {
                       where: { id_importado: chamadoId },
                       data: {
                         sentimento_cliente: emocao,
-                        tipo_documento: tipoChamado
+                        tipo_documento: tipoChamado,
+                        sumarizacao: sumarizacao
                       }
                     });
   

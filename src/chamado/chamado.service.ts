@@ -84,13 +84,15 @@ export class ChamadoService {
     const resultados: ChamadoResultado[] = [];
     for (const chamado of chamados) {
       try {
-        const { chamadoId, emocao, tipoChamado } = chamado;
+        console.log(`Chamado: ${chamado}`)
+        const { chamadoId, emocao, tipoChamado, sumarizacao } = chamado;
 
         await this.prisma.chamado.updateMany({
           where: { id_importado: chamadoId },
           data: {
             sentimento_cliente: emocao,
-            tipo_documento: tipoChamado
+            tipo_documento: tipoChamado,
+            sumarizacao: sumarizacao
           }
         });
 

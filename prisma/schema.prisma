@@ -27,6 +27,7 @@ model Chamado {
   sentimento_cliente String?
   nome_arquivo       NomeArquivo? @relation(fields: [nomeArquivoId], references: [id])
   nomeArquivoId      Int? 
+  sumarizacao        String?
 }
 
 model NomeArquivo {
