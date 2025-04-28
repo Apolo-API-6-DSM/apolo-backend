@@ -4,7 +4,7 @@ import { Chamado } from '@prisma/client';
 
 @Controller('chamados')
 export class ChamadoController {
-  constructor(private readonly chamadoService: ChamadoService) {}
+  constructor(private readonly chamadoService: ChamadoService) { }
   private readonly logger = new Logger(ChamadoController.name);
 
   @Post()
@@ -43,10 +43,20 @@ export class ChamadoController {
   }
 
   @Post('atualizar-emocoes')
-  async atualizarEmocoes(@Body('chamados') chamados: any[]): Promise<{ message: string }> {
-    await this.chamadoService.atualizarEmocoes(chamados);
+  async atualizarEmocoes(
+    @Body('chamados') chamados: any[],
+    @Body('nomeArquivoId') nomeArquivoId: number
+  ): Promise<{ message: string }> {
+    await this.chamadoService.atualizarEmocoes(chamados, nomeArquivoId);
     return { message: 'Emoções atualizadas com sucesso!' };
   }
+
+  @Get('arquivos-info')
+  async listarArquivosComInfo() {
+    this.logger.log(`Listando informações de arquivos e chamados`);
+    return await this.chamadoService.listarArquivosComInfo();
+  }
+
 
   @Get('/:id')
   async buscarChamadoPorId(@Param('id') id: string) {
@@ -68,4 +78,11 @@ export class ChamadoController {
       throw error;
     }
   }
+
+  @Get('nome_arquivo/:nomeArquivoId')
+  async listarChamadosPorNomeArquivoId(@Param('nomeArquivoId', ParseIntPipe) nomeArquivoId: number) {
+    this.logger.log(`Listando chamados com NomeArquivoId: ${nomeArquivoId}`);
+    return await this.chamadoService.listarChamadosPorNomeArquivoId(nomeArquivoId);
+  }
+
 }

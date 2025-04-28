@@ -22,11 +22,11 @@ export class ChamadoService {
   private async connectToMongo() {
     try {
       const mongoUrl = process.env.MONGO_URI;
-      
+
       if (!mongoUrl) {
         throw new Error('A variável de ambiente MONGO_URI não está definida.');
       }
-  
+
       this.mongoClient = new MongoClient(mongoUrl);
       await this.mongoClient.connect();
       this.db = this.mongoClient.db();
@@ -80,17 +80,19 @@ export class ChamadoService {
     });
   }
 
-  async atualizarEmocoes(chamados: any[]): Promise<ChamadoResultado[]> { 
+  async atualizarEmocoes(chamados: any[], nomeArquivoId: number): Promise<ChamadoResultado[]> {
     const resultados: ChamadoResultado[] = [];
     for (const chamado of chamados) {
       try {
-        const { chamadoId, emocao, tipoChamado } = chamado;
+        console.log(`Chamado: ${chamado}`)
+        const { chamadoId, emocao, tipoChamado, sumarizacao } = chamado;
 
         await this.prisma.chamado.updateMany({
           where: { id_importado: chamadoId },
           data: {
             sentimento_cliente: emocao,
-            tipo_documento: tipoChamado
+            tipo_documento: tipoChamado,
+            sumarizacao: sumarizacao
           }
         });
 
@@ -101,6 +103,15 @@ export class ChamadoService {
         this.logger.error(`Erro ao atualizar chamado ${chamado.chamadoId}: ${error.message}`);
         resultados.push({ chamadoId: chamado.chamadoId, status: 'erro', error: error.message });
       }
+    }
+    try {
+      await this.prisma.nomeArquivo.update({
+        where: { id: nomeArquivoId },
+        data: { status: "CONCLUIDO" }
+      });
+      this.logger.log(`Status do arquivo ${nomeArquivoId} atualizado para CONCLUIDO.`);
+    } catch (error) {
+      this.logger.error(`Erro ao atualizar status do arquivo ${nomeArquivoId} para CONCLUIDO: ${error.message}`);
     }
 
     return resultados;
@@ -121,15 +132,69 @@ export class ChamadoService {
         await this.connectToMongo();
       }
 
-      const interacao = await this.db.collection('interacoes_processadas').findOne({ chamadoId: id });
+      if (chamado.tipo_importacao === 'Jira') {
+        const interacao = await this.db.collection('interacoes_processadas').findOne({ chamadoId: id });
 
-      if (interacao && interacao.mensagem_limpa) {
-        chamado['mensagem_limpa'] = interacao.mensagem_limpa;
+        if (interacao && interacao.mensagem_limpa) {
+          chamado['mensagem_limpa'] = interacao.mensagem_limpa;
+        }
+      } else if (chamado.tipo_importacao === 'Alternativo') {
+        const interacaoAlternativa = await this.db.collection('interacoes_alternativas').findOne({ chamadoId: id });
+
+        if (interacaoAlternativa) {
+          chamado['descricao'] = interacaoAlternativa.descricao || null;
+          chamado['solucao'] = interacaoAlternativa.solucao || null;
+        }
       }
 
       return chamado;
     } catch (error) {
       this.logger.error(`Erro ao buscar chamado ${id}: ${error.message}`);
+      throw error;
+    }
+  }
+
+  async listarChamadosPorNomeArquivoId(nomeArquivoId: number): Promise<Chamado[]> {
+    try {
+      return await this.prisma.chamado.findMany({
+        where: { nomeArquivoId },
+        orderBy: { ultima_atualizacao: 'desc' }
+      });
+    } catch (error) {
+      this.logger.error(`Erro ao listar chamados pelo NomeArquivoId ${nomeArquivoId}: ${error.message}`);
+      throw error;
+    }
+  }
+  async listarArquivosComInfo() {
+    try {
+      const arquivos = await this.prisma.nomeArquivo.findMany({
+        include: {
+          chamados: true
+        },
+        orderBy: {
+          dataCriacao: 'desc'
+        }
+      });
+  
+      return arquivos.map(arquivo => {
+        
+        // Pega o tipo_importacao do primeiro chamado (ou um valor padrão)
+        const tipoImportacao = arquivo.chamados.length > 0 
+          ? arquivo.chamados[0].tipo_importacao 
+          : 'DESCONHECIDO';
+  
+        return {
+          'Tipo de Arquivo': tipoImportacao,
+          'Nome de Arquivo': arquivo.nome,
+          'Data da Importação': arquivo.dataCriacao.toLocaleString('pt-BR'),
+          'Status': arquivo.status,
+          'Quantidade de Dados': arquivo.chamados.length,
+          'nomeArquivoId': arquivo.id // Adicionando o ID para uso no frontend
+        };
+      }).filter(arquivo => arquivo !== null);;
+
+    } catch (error) {
+      this.logger.error(`Erro ao listar informações de arquivos: ${error.message}`);
       throw error;
     }
   }
