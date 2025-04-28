@@ -51,6 +51,12 @@ export class ChamadoController {
     return { message: 'Emoções atualizadas com sucesso!' };
   }
 
+  @Get('arquivos-info')
+  async listarArquivosComInfo() {
+    this.logger.log(`Listando informações de arquivos e chamados`);
+    return await this.chamadoService.listarArquivosComInfo();
+  }
+
 
   @Get('/:id')
   async buscarChamadoPorId(@Param('id') id: string) {
@@ -78,4 +84,5 @@ export class ChamadoController {
     this.logger.log(`Listando chamados com NomeArquivoId: ${nomeArquivoId}`);
     return await this.chamadoService.listarChamadosPorNomeArquivoId(nomeArquivoId);
   }
+
 }

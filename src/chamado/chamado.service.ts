@@ -165,4 +165,37 @@ export class ChamadoService {
       throw error;
     }
   }
+  async listarArquivosComInfo() {
+    try {
+      const arquivos = await this.prisma.nomeArquivo.findMany({
+        include: {
+          chamados: true
+        },
+        orderBy: {
+          dataCriacao: 'desc'
+        }
+      });
+  
+      return arquivos.map(arquivo => {
+        
+        // Pega o tipo_importacao do primeiro chamado (ou um valor padrão)
+        const tipoImportacao = arquivo.chamados.length > 0 
+          ? arquivo.chamados[0].tipo_importacao 
+          : 'DESCONHECIDO';
+  
+        return {
+          'Tipo de Arquivo': tipoImportacao,
+          'Nome de Arquivo': arquivo.nome,
+          'Data da Importação': arquivo.dataCriacao.toLocaleString('pt-BR'),
+          'Status': arquivo.status,
+          'Quantidade de Dados': arquivo.chamados.length,
+          'nomeArquivoId': arquivo.id // Adicionando o ID para uso no frontend
+        };
+      }).filter(arquivo => arquivo !== null);;
+
+    } catch (error) {
+      this.logger.error(`Erro ao listar informações de arquivos: ${error.message}`);
+      throw error;
+    }
+  }
 }
