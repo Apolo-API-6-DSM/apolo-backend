@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { Chamado } from '@prisma/client';
+import { Chamado, Prisma } from '@prisma/client';
 import { MongoClient } from 'mongodb';
 
 interface ChamadoResultado {
@@ -36,9 +36,22 @@ export class ChamadoService {
     }
   }
 
-  async criarChamado(data: Chamado): Promise<Chamado> {
-    return this.prisma.chamado.create({ data });
+  async criarChamado(data: any): Promise<Chamado> {
+  try {
+    const jsonKeywords: Prisma.InputJsonValue | undefined =
+      data.keywords && Array.isArray(data.keywords) ? data.keywords : undefined;
+
+    return await this.prisma.chamado.create({
+      data: {
+        ...data,
+        keywords: jsonKeywords,
+      },
+    });
+  } catch (error) {
+    this.logger.error(`Erro ao criar chamado: ${error.message}`);
+    throw error;
   }
+}
 
   async listarChamados(): Promise<Chamado[]> {
     return this.prisma.chamado.findMany({
@@ -198,4 +211,23 @@ export class ChamadoService {
       throw error;
     }
   }
+
+  async atualizarKeywords(chamadoId: string, keywords: any): Promise<Chamado> {
+  try {
+    const jsonKeywords: Prisma.InputJsonValue = Array.isArray(keywords) ? keywords : [];
+
+    const chamado = await this.prisma.chamado.update({
+      where: { id_importado: chamadoId },
+      data: {
+        keywords: jsonKeywords,
+      },
+    });
+
+    this.logger.log(`Keywords atualizadas para o chamado ${chamadoId}`);
+    return chamado;
+  } catch (error) {
+    this.logger.error(`Erro ao atualizar keywords do chamado ${chamadoId}: ${error.message}`);
+    throw error;
+  }
+}
 }
