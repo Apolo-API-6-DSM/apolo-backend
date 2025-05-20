@@ -148,8 +148,8 @@ export class ChamadoService {
       if (chamado.tipo_importacao === 'Jira') {
         const interacao = await this.db.collection('interacoes_processadas').findOne({ chamadoId: id });
 
-        if (interacao && interacao.mensagem_limpa) {
-          chamado['mensagem_limpa'] = interacao.mensagem_limpa;
+        if (interacao && interacao.descricao_dataset) {
+          chamado['descricao_dataset'] = interacao.descricao_dataset;
         }
       } else if (chamado.tipo_importacao === 'Alternativo') {
         const interacaoAlternativa = await this.db.collection('interacoes_alternativas').findOne({ chamadoId: id });

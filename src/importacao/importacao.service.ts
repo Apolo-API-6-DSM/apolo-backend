@@ -12,7 +12,7 @@ moment.locale('pt-br');
 @Injectable()
 export class ImportacaoService {
   private readonly logger = new Logger(ImportacaoService.name);
-  private readonly PYTHON_API_URL_FASTAPI = 'http://localhost:8000/api/v1/process';
+  private readonly PYTHON_API_URL_FASTAPI = 'http://localhost:8000/api/v1';
 
   constructor(
     private prisma: PrismaService,
@@ -128,28 +128,34 @@ export class ImportacaoService {
     }
   }
 
-  private async enviarIdsParaFastAPI(ids: string[]): Promise<void> {
+  private async enviarIdsParaFastAPI(ids: string[], isAlternativo: boolean = false): Promise<void> {
     const BATCH_SIZE = 100;
+    const endpoint = isAlternativo ? '/process-alternative' : '/process';
 
     for (let i = 0; i < ids.length; i += BATCH_SIZE) {
-      const batch = ids.slice(i, i + BATCH_SIZE);
+        const batch = ids.slice(i, i + BATCH_SIZE);
 
-      try {
-        axios.post(this.PYTHON_API_URL_FASTAPI, { ids: batch })
-          .then(response => {
-            if (response.status === 200) {
-              this.logger.log(`Lote de ${batch.length} IDs enviado com sucesso!`);
-            } else {
-              this.logger.error(`Erro no envio do lote: ${response.status} - ${response.statusText}`);
-            }
-          })
-          .catch(error => {
-            this.logger.error(`Erro ao enviar lote de IDs para FastAPI: ${error.message}`);
-          });
+        try {
+            // Para o formato alternativo, envie os textos em vez dos IDs
+            const payload = {
+                ids: ids // Garanta que está enviando como {ids: [...]}
+            };
 
-      } catch (error) {
-        this.logger.error(`Erro ao enviar IDs para FastAPI: ${error.message}`);
-      }
+            axios.post(`${this.PYTHON_API_URL_FASTAPI}${endpoint}`, payload)
+                .then(response => {
+                    if (response.status === 200) {
+                        this.logger.log(`Lote de ${batch.length} itens enviado com sucesso para ${endpoint}!`);
+                    } else {
+                        this.logger.error(`Erro no envio do lote: ${response.status} - ${response.statusText}`);
+                    }
+                })
+                .catch(error => {
+                    this.logger.error(`Erro ao enviar lote para FastAPI: ${error.message}`);
+                });
+
+        } catch (error) {
+            this.logger.error(`Erro ao enviar dados para FastAPI: ${error.message}`);
+        }
     }
   }
 
@@ -175,6 +181,7 @@ export class ImportacaoService {
 
   async importarArquivoAlternativo(filePath: string, fileName: string): Promise<void> {
     const resultados: Record<string, any>[] = [];
+    const idsProcessados: string[] = [];
 
     const arquivo = await this.prisma.nomeArquivo.create({
       data: {
@@ -183,7 +190,6 @@ export class ImportacaoService {
       }
     });
 
-  
     return new Promise((resolve, reject) => {
       fs.createReadStream(filePath)
         .pipe(csv({ separator: ';' }))
@@ -200,7 +206,7 @@ export class ImportacaoService {
               'Solução - Solução',
               'Atribuído para - Técnico'
             ];
-  
+
             if (!colunas.every(col => col in resultados[0])) {
               await this.prisma.nomeArquivo.update({
                 where: { id: arquivo.id },
@@ -208,9 +214,7 @@ export class ImportacaoService {
               });
               throw new BadRequestException('O arquivo não está no formato esperado do CSV Alternativo.');
             }
-  
-            const chamadosParaIA: { chamadoId: string; descricao: string }[] = [];
-  
+
             for (const item of resultados) {
               try {
                 const idChamado = item['ID'];
@@ -221,12 +225,12 @@ export class ImportacaoService {
                 const responsavel = item['Atribuído para - Técnico'] || 'Não informado';
                 const descricao = (item['Descrição'] || '').trim();
                 const solucao = (item['Solução - Solução'] || '').trim();
-  
+
                 if (isNaN(dataAbertura.getTime())) {
                   this.logger.warn(`Data inválida para o chamado ${idChamado}`);
                   continue;
                 }
-  
+
                 await this.prisma.chamado.upsert({
                   where: { id_importado: idChamado },
                   update: {
@@ -248,7 +252,7 @@ export class ImportacaoService {
                     nomeArquivoId: arquivo.id
                   }
                 });
-  
+
                 await this.interacoesService.criarInteracaoAlternativa(
                   idChamado,
                   descricao,
@@ -257,73 +261,39 @@ export class ImportacaoService {
                   responsavel
                 );
 
-                const mensagemParaIA = `${descricao} ${solucao}`.trim();
-                if (mensagemParaIA) {
-                  chamadosParaIA.push({
-                    chamadoId: idChamado,
-                    descricao: mensagemParaIA
-                  });
-                }
+                idsProcessados.push(idChamado);
               } catch (error) {
                 this.logger.error(`Erro ao processar item ${item['ID']}`, error.stack);
               }
             }
-  
-            const BATCH_SIZE = 100;
 
             // Atualiza status para concluído
             await this.prisma.nomeArquivo.update({
               where: { id: arquivo.id },
               data: { status: "EM ANÁLISE" }
             });
-  
-            for (let i = 0; i < chamadosParaIA.length; i += BATCH_SIZE) {
-              const lote = chamadosParaIA.slice(i, i + BATCH_SIZE);
-  
-              try {
-                const response = await axios.post('http://localhost:8080/prever', {
-                  chamados: lote
-                }, {
-                  headers: { 'Content-Type': 'application/json' },
-                  timeout: 300_000
-                });
-  
-                this.logger.log(`Lote ${i / BATCH_SIZE + 1} enviado com sucesso à IA. Status: ${response.status}`);
-  
-                const resultados = response.data?.chamados || [];
-  
-                for (const resultado of resultados) {
-                  const { chamadoId, emocao, tipoChamado, sumarizacao } = resultado;
-  
-                  if (!chamadoId) continue;
-  
-                  try {
-                    await this.prisma.chamado.updateMany({
-                      where: { id_importado: chamadoId },
-                      data: {
-                        sentimento_cliente: emocao,
-                        tipo_documento: tipoChamado,
-                        sumarizacao: sumarizacao
-                      }
-                    });
-  
-                    this.logger.log(`Chamado ${chamadoId} atualizado com emoção: ${emocao}, tipo: ${tipoChamado}`);
-                  } catch (error) {
-                    this.logger.error(`Erro ao atualizar chamado ${chamadoId}: ${error.message}`);
-                  }
-                }
-  
-              } catch (error) {
-                this.logger.error(`Erro ao enviar lote para IA: ${error.message}`);
-              }
+
+            // Envia os IDs para pré-processamento no FastAPI
+            if (idsProcessados.length > 0) {
+              this.enviarIdsParaFastAPI(idsProcessados, true);
             }
-  
+
             resolve();
           } catch (error) {
+            await this.prisma.nomeArquivo.update({
+              where: { id: arquivo.id },
+              data: { status: "Erro ao processar" }
+            });
             reject(error);
           }
         })
-        .on('error', (error) => reject(error));
+        .on('error', async (error) => {
+          await this.prisma.nomeArquivo.update({
+            where: { id: arquivo.id },
+            data: { status: "Erro ao processar" }
+          });
+          reject(error);
+        });
     });
   }
 }
