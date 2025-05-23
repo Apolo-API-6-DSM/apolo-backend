@@ -110,8 +110,8 @@ export class ImportacaoService {
           'Accept': 'application/json'
         },
         maxContentLength: Infinity,
-        maxBodyLength: Infinity,
-        timeout: 30000
+        maxBodyLength: Infinity
+        // timeout: 30000
       });
 
       this.logger.log(`Resposta da Python API: ${response.status}`);
