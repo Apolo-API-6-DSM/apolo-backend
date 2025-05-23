@@ -6,6 +6,8 @@ import * as fs from 'fs';
 import * as moment from 'moment';
 import axios from 'axios';
 import 'moment/locale/pt-br';
+import * as FormData from 'form-data';
+import * as path from 'path';
 
 moment.locale('pt-br');
 
@@ -20,15 +22,20 @@ export class ImportacaoService {
   ) { }
 
   async importarArquivo(filePath: string, fileName: string): Promise<void> {
-    const resultados: Record<string, any>[] = [];
+  const resultados: Record<string, any>[] = [];
 
-    const arquivo = await this.prisma.nomeArquivo.create({
-      data: {
-        nome: fileName,
-        status: "PROCESSANDO"
-      }
-    });
+  const arquivo = await this.prisma.nomeArquivo.create({
+    data: {
+      nome: fileName,
+      status: "PROCESSANDO"
+    }
+  });
 
+  try {
+    // Primeiro envia para o Python API
+    await this.enviarParaPythonAPI(filePath);
+    
+    // Depois continua com o processamento normal
     return new Promise((resolve, reject) => {
       fs.createReadStream(filePath)
         .pipe(csv())
@@ -43,7 +50,7 @@ export class ImportacaoService {
               throw new BadRequestException('O arquivo não está no formato esperado do Jira');
             }
             await this.salvarChamados(resultados, arquivo.id);
-            // Atualiza status para concluído
+            
             await this.prisma.nomeArquivo.update({
               where: { id: arquivo.id },
               data: { status: "EM ANÁLISE" }
@@ -51,7 +58,6 @@ export class ImportacaoService {
 
             resolve();
           } catch (error) {
-            // Em caso de erro, atualiza o status
             await this.prisma.nomeArquivo.update({
               where: { id: arquivo.id },
               data: { status: "Erro ao processar" }
@@ -67,7 +73,70 @@ export class ImportacaoService {
           reject(error);
         });
     });
+  } catch (error) {
+    await this.prisma.nomeArquivo.update({
+      where: { id: arquivo.id },
+      data: { status: "Erro ao processar" }
+    });
+    throw error;
   }
+}
+
+  private async enviarParaPythonAPI(filePath: string): Promise<void> {
+  try {
+    this.logger.log(`Preparando para enviar arquivo: ${filePath}`);
+    
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`Arquivo não encontrado: ${filePath}`);
+    }
+
+    const formData = new FormData();
+    const fileStream = fs.createReadStream(filePath);
+    const fileName = path.basename(filePath);
+    
+    // Garante que o nome do arquivo termina com .csv
+    const finalFileName = fileName.endsWith('.csv') ? fileName : `${fileName}.csv`;
+    
+    formData.append('file', fileStream, {
+      filename: finalFileName,
+      contentType: 'text/csv',
+      knownLength: fs.statSync(filePath).size
+    });
+
+    this.logger.log(`Enviando ${finalFileName} (${fs.statSync(filePath).size} bytes) para Python API...`);
+
+    const response = await axios.post('http://127.0.0.1:8002/processar', formData, {
+      headers: {
+        ...formData.getHeaders(),
+        'Accept': 'application/json'
+      },
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity,
+      timeout: 30000
+    });
+
+    this.logger.log(`Resposta da Python API: ${response.status}`);
+    this.logger.debug(`Detalhes da resposta:`, response.data);
+    
+    if (response.status !== 200) {
+      throw new Error(`Resposta inesperada: ${response.status}`);
+    }
+  } catch (error) {
+    let errorMessage = 'Erro desconhecido';
+    
+    if (axios.isAxiosError(error)) {
+      errorMessage = `Erro na requisição: ${error.message}`;
+      if (error.response) {
+        errorMessage += ` | Status: ${error.response.status} | Data: ${JSON.stringify(error.response.data)}`;
+      }
+    } else if (error instanceof Error) {
+      errorMessage = error.message;
+    }
+
+    this.logger.error(`Erro detalhado ao enviar arquivo: ${errorMessage}`);
+    throw new Error(`Falha ao processar arquivo com Python: ${errorMessage}`);
+  }
+}
 
   validarFormato(primeiraLinha: Record<string, any>): boolean {
     const colunasEsperadas = ['Resumo', 'ID da item', 'Status', 'Criado', 'Categoria do status alterada', 'Responsável'];
