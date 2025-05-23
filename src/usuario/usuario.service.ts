@@ -5,24 +5,22 @@ import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class UsuarioService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   async criarUsuario(email: string, senha: string, papel: string, nome: string) {
-  const saltRounds = 10;
-  const senhaHash = await bcrypt.hash(senha, saltRounds);
-  
-  console.log(`Criando usuário ${email} com hash:`, senhaHash);
-  
-  return this.prisma.usuario.create({
-    data: {
-      email,
-      senha: senhaHash,
-      papel,
-      nome,
-      status: true
-    }
-  });
-}
+    const saltRounds = 10;
+    const senhaHash = await bcrypt.hash(senha, saltRounds);
+
+    return this.prisma.usuario.create({
+      data: {
+        email,
+        senha: senhaHash,
+        papel,
+        nome,
+        status: true,
+      },
+    });
+  }
 
   async listarUsuarios(): Promise<Usuario[]> {
     return this.prisma.usuario.findMany();

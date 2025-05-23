@@ -27,7 +27,7 @@ export class BootstrapService implements OnModuleInit {
         const senhaHash = await bcrypt.hash(adminData.senha, 10);
         await this.usuarioService.criarUsuario(
           adminData.email,
-          senhaHash,
+          adminData.senha,
           adminData.papel,
           adminData.nome
         );
