@@ -22,121 +22,120 @@ export class ImportacaoService {
   ) { }
 
   async importarArquivo(filePath: string, fileName: string): Promise<void> {
-  const resultados: Record<string, any>[] = [];
+    const resultados: Record<string, any>[] = [];
 
-  const arquivo = await this.prisma.nomeArquivo.create({
-    data: {
-      nome: fileName,
-      status: "PROCESSANDO"
-    }
-  });
+    const arquivo = await this.prisma.nomeArquivo.create({
+      data: {
+        nome: fileName,
+        status: "PROCESSANDO"
+      }
+    });
 
-  try {
-    // Primeiro envia para o Python API
-    await this.enviarParaPythonAPI(filePath);
-    
-    // Depois continua com o processamento normal
-    return new Promise((resolve, reject) => {
-      fs.createReadStream(filePath)
-        .pipe(csv())
-        .on('data', (data: Record<string, any>) => resultados.push(data))
-        .on('end', async () => {
-          try {
-            if (!this.validarFormato(resultados[0])) {
+    try {      
+      // Depois continua com o processamento normal
+      return new Promise((resolve, reject) => {
+        fs.createReadStream(filePath)
+          .pipe(csv())
+          .on('data', (data: Record<string, any>) => resultados.push(data))
+          .on('end', async () => {
+            try {
+              if (!this.validarFormato(resultados[0])) {
+                await this.prisma.nomeArquivo.update({
+                  where: { id: arquivo.id },
+                  data: { status: "Erro ao processar" }
+                });
+                throw new BadRequestException('O arquivo não está no formato esperado do Jira');
+              }
+              await this.salvarChamados(resultados, arquivo.id);
+              
+              await this.prisma.nomeArquivo.update({
+                where: { id: arquivo.id },
+                data: { status: "EM ANÁLISE" }
+              });
+
+              await this.enviarParaPythonAPI(filePath);
+
+              resolve();
+            } catch (error) {
               await this.prisma.nomeArquivo.update({
                 where: { id: arquivo.id },
                 data: { status: "Erro ao processar" }
               });
-              throw new BadRequestException('O arquivo não está no formato esperado do Jira');
+              reject(error);
             }
-            await this.salvarChamados(resultados, arquivo.id);
-            
-            await this.prisma.nomeArquivo.update({
-              where: { id: arquivo.id },
-              data: { status: "EM ANÁLISE" }
-            });
-
-            resolve();
-          } catch (error) {
+          })
+          .on('error', async (error) => {
             await this.prisma.nomeArquivo.update({
               where: { id: arquivo.id },
               data: { status: "Erro ao processar" }
             });
             reject(error);
-          }
-        })
-        .on('error', async (error) => {
-          await this.prisma.nomeArquivo.update({
-            where: { id: arquivo.id },
-            data: { status: "Erro ao processar" }
           });
-          reject(error);
-        });
-    });
-  } catch (error) {
-    await this.prisma.nomeArquivo.update({
-      where: { id: arquivo.id },
-      data: { status: "Erro ao processar" }
-    });
-    throw error;
+      });
+    } catch (error) {
+      await this.prisma.nomeArquivo.update({
+        where: { id: arquivo.id },
+        data: { status: "Erro ao processar" }
+      });
+      throw error;
+    }
   }
-}
 
   private async enviarParaPythonAPI(filePath: string): Promise<void> {
-  try {
-    this.logger.log(`Preparando para enviar arquivo: ${filePath}`);
-    
-    if (!fs.existsSync(filePath)) {
-      throw new Error(`Arquivo não encontrado: ${filePath}`);
-    }
-
-    const formData = new FormData();
-    const fileStream = fs.createReadStream(filePath);
-    const fileName = path.basename(filePath);
-    
-    // Garante que o nome do arquivo termina com .csv
-    const finalFileName = fileName.endsWith('.csv') ? fileName : `${fileName}.csv`;
-    
-    formData.append('file', fileStream, {
-      filename: finalFileName,
-      contentType: 'text/csv',
-      knownLength: fs.statSync(filePath).size
-    });
-
-    this.logger.log(`Enviando ${finalFileName} (${fs.statSync(filePath).size} bytes) para Python API...`);
-
-    const response = await axios.post('http://127.0.0.1:8002/processar', formData, {
-      headers: {
-        ...formData.getHeaders(),
-        'Accept': 'application/json'
-      },
-      maxContentLength: Infinity,
-      maxBodyLength: Infinity,
-      timeout: 30000
-    });
-
-    this.logger.log(`Resposta da Python API: ${response.status}`);
-    this.logger.debug(`Detalhes da resposta:`, response.data);
-    
-    if (response.status !== 200) {
-      throw new Error(`Resposta inesperada: ${response.status}`);
-    }
-  } catch (error) {
-    let errorMessage = 'Erro desconhecido';
-    
-    if (axios.isAxiosError(error)) {
-      errorMessage = `Erro na requisição: ${error.message}`;
-      if (error.response) {
-        errorMessage += ` | Status: ${error.response.status} | Data: ${JSON.stringify(error.response.data)}`;
+    try {
+      this.logger.log(`Preparando para enviar arquivo: ${filePath}`);
+      
+      if (!fs.existsSync(filePath)) {
+        throw new Error(`Arquivo não encontrado: ${filePath}`);
       }
-    } else if (error instanceof Error) {
-      errorMessage = error.message;
-    }
 
-    this.logger.error(`Erro detalhado ao enviar arquivo: ${errorMessage}`);
-    throw new Error(`Falha ao processar arquivo com Python: ${errorMessage}`);
+      const formData = new FormData();
+      const fileStream = fs.createReadStream(filePath);
+      const fileName = path.basename(filePath);
+      
+      // Garante que o nome do arquivo termina com .csv
+      const finalFileName = fileName.endsWith('.csv') ? fileName : `${fileName}.csv`;
+      
+      formData.append('file', fileStream, {
+        filename: finalFileName,
+        contentType: 'text/csv',
+        knownLength: fs.statSync(filePath).size
+      });
+
+      this.logger.log(`Enviando ${finalFileName} (${fs.statSync(filePath).size} bytes) para Python API...`);
+
+      const response = await axios.post('http://127.0.0.1:8002/processar', formData, {
+        headers: {
+          ...formData.getHeaders(),
+          'Accept': 'application/json'
+        },
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity,
+        timeout: 30000
+      });
+
+      this.logger.log(`Resposta da Python API: ${response.status}`);
+      this.logger.debug(`Detalhes da resposta:`, response.data);
+      
+      if (response.status !== 200) {
+        throw new Error(`Resposta inesperada: ${response.status}`);
+      }
+    } catch (error) {
+      let errorMessage = 'Erro desconhecido';
+      
+      if (axios.isAxiosError(error)) {
+        errorMessage = `Erro na requisição: ${error.message}`;
+        if (error.response) {
+          errorMessage += ` | Status: ${error.response.status} | Data: ${JSON.stringify(error.response.data)}`;
+        }
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+
+      this.logger.error(`Erro detalhado ao enviar arquivo: ${errorMessage}`);
+      throw new Error(`Falha ao processar arquivo com Python: ${errorMessage}`);
+    }
   }
-}
 
   validarFormato(primeiraLinha: Record<string, any>): boolean {
     const colunasEsperadas = ['Resumo', 'ID da item', 'Status', 'Criado', 'Categoria do status alterada', 'Responsável'];

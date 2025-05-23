@@ -3,15 +3,47 @@ import pandas as pd
 import os
 from werkzeug.utils import secure_filename
 import uuid
+from pymongo import MongoClient
+from dotenv import load_dotenv
+from datetime import datetime
+from bson.objectid import ObjectId
+
+# Carrega variáveis de ambiente
+load_dotenv()
 
 app = Flask(__name__)
+
+# Configuração do MongoDB
+MONGO_URI = os.getenv('MONGO_URI')
+if not MONGO_URI:
+    raise ValueError("MONGO_URI não configurada no ambiente")
+
+class MongoDBClient:
+    def __init__(self):
+        self.client = MongoClient(MONGO_URI)
+        self.db = self.client.get_default_database()  # Usa o database padrão da URI
+        self.interacoes_collection = self.db['interacoes']
+        
+    def atualizar_comentarios(self, chamadoId, comentarios):
+        """Atualiza o documento existente adicionando os comentários"""
+        return self.interacoes_collection.update_one(
+            {'chamadoId': str(chamadoId)},  # Note que estamos usando 'chamadoId' aqui
+            {
+                '$set': {
+                    'comentarios': comentarios,
+                    'updatedAt': datetime.utcnow()
+                }
+            },
+            upsert=False  # Não cria novo documento se não existir
+        )
+
+mongo_client = MongoDBClient()
 
 # Configurações
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'csv'}
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# Verifica se a pasta de upload existe, se não, cria
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
@@ -24,151 +56,58 @@ class ImportacaoService:
 
     def importar_arquivo(self, file_path):
         try:
-            # Lê o arquivo CSV mantendo todas as colunas originais
             df = pd.read_csv(file_path, encoding='utf-8', sep=',', dtype=str)
+            total_atualizados = 0
 
-            # Filtra e processa as colunas de comentários
-            comentarios_cols = [col for col in df.columns if col.startswith('Comentar')]
-            
-            # Consolida os comentários em uma única coluna
-            if comentarios_cols:
-                df['comentarios'] = df.apply(lambda row: self._formatar_comentarios(row, comentarios_cols), axis=1)
-                df = df.drop(columns=comentarios_cols)
-            else:
-                df['comentarios'] = 'Sem comentários'
+            for _, row in df.iterrows():
+                try:
+                    chamadoId = row.get('ID da item')
+                    if not chamadoId:
+                        continue
 
-            # Renomeia as colunas principais para padronização
-            df = df.rename(columns={
-                'Resumo': 'titulo',
-                'ID da item': 'id_importado',
-                'Status': 'status',
-                'Criado': 'data_abertura',
-                'Categoria do status alterada': 'ultima_atualizacao',
-                'Responsável': 'responsavel',
-                'Descrição': 'mensagem'
-            })
+                    # Formata os comentários
+                    comentarios = self._formatar_comentarios(row)
+                    if not comentarios:
+                        continue
 
-            # Seleciona e reordena as colunas principais
-            colunas_principais = ['titulo', 'id_importado', 'status', 'data_abertura',
-                                'ultima_atualizacao', 'responsavel', 'mensagem', 'comentarios']
+                    # Verifica se o documento existe antes de atualizar
+                    doc_existente = mongo_client.interacoes_collection.find_one({'chamadoId': str(chamadoId)})
+                    if not doc_existente:
+                        app.logger.warning(f"Documento com chamadoId {chamadoId} não encontrado")
+                        continue
 
-            df_final = df[colunas_principais]
+                    # Atualiza o documento
+                    result = mongo_client.atualizar_comentarios(chamadoId, comentarios)
+                    if result.modified_count > 0:
+                        total_atualizados += 1
+                        app.logger.info(f"Comentários adicionados ao chamado {chamadoId}")
 
-            # Gera um nome único para o arquivo de saída
-            output_file = os.path.join(app.config['UPLOAD_FOLDER'], f'chamados_completos_{uuid.uuid4().hex}.csv')
-            df_final.to_csv(output_file, index=False, encoding='utf-8-sig', sep=';')
-            
-            return {'success': True, 'message': 'Arquivo processado com sucesso', 'file': output_file}
+                except Exception as e:
+                    app.logger.error(f"Erro ao processar chamado {chamadoId}: {str(e)}")
+                    continue
+
+            return {
+                'success': True,
+                'message': f'Comentários atualizados em {total_atualizados} chamados',
+                'total_atualizados': total_atualizados
+            }
         
         except Exception as e:
+            app.logger.error(f"Erro ao processar arquivo: {str(e)}")
             return {'success': False, 'message': f'Erro ao processar arquivo: {str(e)}'}
 
-    def _formatar_comentarios(self, row, comentarios_cols):
-        """Formata os comentários em uma string única com quebras de linha"""
-        comentarios_formatados = []
-        for col in comentarios_cols:
-            if pd.notna(row[col]) and str(row[col]).strip() != '':
-                comentarios_formatados.append(f"{col}: \"{str(row[col]).strip()}\"")
-        
-        return '\n\n'.join(comentarios_formatados) if comentarios_formatados else 'Sem comentários'
-
-class ConsolidacaoService:
-    def __init__(self):
-        pass
-
-    def consolidar_comentarios(self, input_file):
-        try:
-            # Lê o arquivo gerado anteriormente
-            df = pd.read_csv(input_file, encoding='utf-8-sig', sep=';')
-
-            # Identifica colunas de comentários
-            comentarios_cols = [col for col in df.columns if col.startswith('Comentar')]
-
-            # Função para consolidar os comentários
-            def consolidar(row):
-                comentarios = []
-                for col in comentarios_cols:
-                    if pd.notna(row[col]) and str(row[col]).strip() != '':
-                        comentarios.append(f"{col}: {str(row[col]).strip()}")
-                return '\n'.join(comentarios) if comentarios else 'Sem comentários'
-
-            # Aplica a consolidação
-            df['comentarios'] = df.apply(consolidar, axis=1)
-            df['quantidade_comentarios'] = df[comentarios_cols].notna().sum(axis=1)
-
-            # Remove as colunas individuais de comentários
-            df = df.drop(columns=comentarios_cols)
-
-            # Reordena as colunas
-            colunas_ordenadas = ['titulo', 'id_importado', 'status', 'data_abertura',
-                               'ultima_atualizacao', 'responsavel', 'mensagem',
-                               'quantidade_comentarios', 'comentarios']
-            df = df[colunas_ordenadas]
-
-            # Gera um nome único para o arquivo de saída
-            output_file = os.path.join(app.config['UPLOAD_FOLDER'], f'chamados_consolidados_{uuid.uuid4().hex}.csv')
-            df.to_csv(output_file, index=False, encoding='utf-8-sig', sep=';')
-            
-            return {'success': True, 'message': 'Comentários consolidados com sucesso', 'file': output_file}
-        
-        except Exception as e:
-            return {'success': False, 'message': f'Erro ao consolidar comentários: {str(e)}'}
-
-@app.route('/importar', methods=['POST'])
-def importar():
-    if 'file' not in request.files:
-        return jsonify({'success': False, 'message': 'Nenhum arquivo enviado'}), 400
-    
-    file = request.files['file']
-    
-    if file.filename == '':
-        return jsonify({'success': False, 'message': 'Nenhum arquivo selecionado'}), 400
-    
-    if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        temp_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(temp_path)
-        
-        service = ImportacaoService()
-        result = service.importar_arquivo(temp_path)
-        
-        # Remove o arquivo temporário
-        os.remove(temp_path)
-        
-        if result['success']:
-            return jsonify(result), 200
-        else:
-            return jsonify(result), 500
-    
-    return jsonify({'success': False, 'message': 'Tipo de arquivo não permitido'}), 400
-
-@app.route('/consolidar', methods=['POST'])
-def consolidar():
-    if 'file' not in request.files:
-        return jsonify({'success': False, 'message': 'Nenhum arquivo enviado'}), 400
-    
-    file = request.files['file']
-    
-    if file.filename == '':
-        return jsonify({'success': False, 'message': 'Nenhum arquivo selecionado'}), 400
-    
-    if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        temp_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(temp_path)
-        
-        service = ConsolidacaoService()
-        result = service.consolidar_comentarios(temp_path)
-        
-        # Remove o arquivo temporário
-        os.remove(temp_path)
-        
-        if result['success']:
-            return jsonify(result), 200
-        else:
-            return jsonify(result), 500
-    
-    return jsonify({'success': False, 'message': 'Tipo de arquivo não permitido'}), 400
+    def _formatar_comentarios(self, row):
+        """Formata os comentários mantendo a origem de cada um"""
+        comentarios = []
+        for col, value in row.items():
+            if col.startswith('Comentar') and pd.notna(value) and str(value).strip():
+                comentarios.append({
+                    'origem': col,
+                    'texto': str(value).strip(),
+                    'tipo': 'comentario',
+                    'timestamp': datetime.utcnow().isoformat()
+                })
+        return comentarios
 
 @app.route('/processar', methods=['POST'])
 def processar():
@@ -180,17 +119,19 @@ def processar():
     if file.filename == '':
         return jsonify({'success': False, 'message': 'Nenhum arquivo selecionado'}), 400
     
-    if not (file.filename.lower().endswith('.csv') or '.' not in file.filename):
+    if not allowed_file(file.filename):
         return jsonify({'success': False, 'message': 'Apenas arquivos CSV são permitidos'}), 400
     
     try:
-        unique_filename = f"temp_{uuid.uuid4().hex}.csv"
-        temp_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+        # Salva temporariamente o arquivo
+        temp_path = os.path.join(app.config['UPLOAD_FOLDER'], secure_filename(file.filename))
         file.save(temp_path)
         
+        # Processa o arquivo
         service = ImportacaoService()
         result = service.importar_arquivo(temp_path)
         
+        # Remove o arquivo temporário
         os.remove(temp_path)
         
         return jsonify(result), 200
