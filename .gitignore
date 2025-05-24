@@ -3,6 +3,10 @@
 /node_modules
 /build
 
+src/importacao/tratar_comentarios/venv
+src/importacao/tratar_comentarios/__pycache__
+src/importacao/tratar_comentarios/uploads
+
 # Logs
 logs
 *.log
