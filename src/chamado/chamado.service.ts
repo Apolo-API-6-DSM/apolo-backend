@@ -37,21 +37,21 @@ export class ChamadoService {
   }
 
   async criarChamado(data: any): Promise<Chamado> {
-  try {
-    const jsonKeywords: Prisma.InputJsonValue | undefined =
-      data.keywords && Array.isArray(data.keywords) ? data.keywords : undefined;
+    try {
+      const jsonKeywords: Prisma.InputJsonValue | undefined =
+        data.keywords && Array.isArray(data.keywords) ? data.keywords : undefined;
 
-    return await this.prisma.chamado.create({
-      data: {
-        ...data,
-        keywords: jsonKeywords,
-      },
-    });
-  } catch (error) {
-    this.logger.error(`Erro ao criar chamado: ${error.message}`);
-    throw error;
+      return await this.prisma.chamado.create({
+        data: {
+          ...data,
+          keywords: jsonKeywords,
+        },
+      });
+    } catch (error) {
+      this.logger.error(`Erro ao criar chamado: ${error.message}`);
+      throw error;
+    }
   }
-}
 
   async listarChamados(): Promise<Chamado[]> {
     return this.prisma.chamado.findMany({
@@ -148,8 +148,20 @@ export class ChamadoService {
       if (chamado.tipo_importacao === 'Jira') {
         const interacao = await this.db.collection('interacoes_processadas').findOne({ chamadoId: id });
 
-        if (interacao && interacao.descricao_dataset) {
-          chamado['descricao_dataset'] = interacao.descricao_dataset;
+        if (interacao) {
+          chamado['descricao_dataset'] = interacao.descricao_dataset || null;
+          chamado['mensagem_limpa'] = interacao.mensagem_limpa || null;
+
+          if (interacao.comentarios_processados) {
+            const comentariosOrdenados = interacao.comentarios_processados
+              .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+            chamado['comentarios'] = comentariosOrdenados.map((comentario, index) =>
+              `Comentário ${index + 1}: ${comentario.texto}`
+            );
+          } else {
+            chamado['comentarios'] = [];
+          }
         }
       } else if (chamado.tipo_importacao === 'Alternativo') {
         const interacaoAlternativa = await this.db.collection('interacoes_alternativas').findOne({ chamadoId: id });
@@ -188,14 +200,14 @@ export class ChamadoService {
           dataCriacao: 'desc'
         }
       });
-  
+
       return arquivos.map(arquivo => {
-        
+
         // Pega o tipo_importacao do primeiro chamado (ou um valor padrão)
-        const tipoImportacao = arquivo.chamados.length > 0 
-          ? arquivo.chamados[0].tipo_importacao 
+        const tipoImportacao = arquivo.chamados.length > 0
+          ? arquivo.chamados[0].tipo_importacao
           : 'DESCONHECIDO';
-  
+
         return {
           'Tipo de Arquivo': tipoImportacao,
           'Nome de Arquivo': arquivo.nome,
@@ -213,21 +225,21 @@ export class ChamadoService {
   }
 
   async atualizarKeywords(chamadoId: string, keywords: any): Promise<Chamado> {
-  try {
-    const jsonKeywords: Prisma.InputJsonValue = Array.isArray(keywords) ? keywords : [];
+    try {
+      const jsonKeywords: Prisma.InputJsonValue = Array.isArray(keywords) ? keywords : [];
 
-    const chamado = await this.prisma.chamado.update({
-      where: { id_importado: chamadoId },
-      data: {
-        keywords: jsonKeywords,
-      },
-    });
+      const chamado = await this.prisma.chamado.update({
+        where: { id_importado: chamadoId },
+        data: {
+          keywords: jsonKeywords,
+        },
+      });
 
-    this.logger.log(`Keywords atualizadas para o chamado ${chamadoId}`);
-    return chamado;
-  } catch (error) {
-    this.logger.error(`Erro ao atualizar keywords do chamado ${chamadoId}: ${error.message}`);
-    throw error;
+      this.logger.log(`Keywords atualizadas para o chamado ${chamadoId}`);
+      return chamado;
+    } catch (error) {
+      this.logger.error(`Erro ao atualizar keywords do chamado ${chamadoId}: ${error.message}`);
+      throw error;
+    }
   }
-}
 }
