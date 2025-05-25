@@ -12,6 +12,8 @@ model Usuario {
   email  String  @unique
   senha  String
   papel  String
+  nome   String
+  status Boolean
 }
 
 model Chamado {
