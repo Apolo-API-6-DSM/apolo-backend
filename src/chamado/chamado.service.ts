@@ -164,11 +164,32 @@ export class ChamadoService {
           }
         }
       } else if (chamado.tipo_importacao === 'Alternativo') {
+        // Busca dados da coleção original
         const interacaoAlternativa = await this.db.collection('interacoes_alternativas').findOne({ chamadoId: id });
+        
+        // Busca dados da coleção processada
+        const interacaoProcessada = await this.db.collection('interacoes_alternativas_processadas').findOne({ chamadoId: id });
 
+        // Combina os dados das duas coleções
         if (interacaoAlternativa) {
           chamado['descricao'] = interacaoAlternativa.descricao || null;
           chamado['solucao'] = interacaoAlternativa.solucao || null;
+          chamado['usuario'] = interacaoAlternativa.usuario || null;
+          chamado['data'] = interacaoAlternativa.data || null;
+        }
+
+        if (interacaoProcessada) {
+          chamado['descricao_original'] = interacaoProcessada.descricao_original || null;
+          chamado['descricao_processada'] = interacaoProcessada.descricao_processada || null;
+          chamado['data_processamento'] = interacaoProcessada.data_processamento || null;
+        }
+
+        // Adiciona lógica para comparar/mesclar dados se necessário
+        if (interacaoAlternativa && interacaoProcessada) {
+          // Exemplo: verifica se a descrição original da processada bate com a descrição da alternativa
+          if (interacaoProcessada.descricao_original !== interacaoAlternativa.descricao) {
+            this.logger.warn(`Possível inconsistência nas descrições para o chamado ${id}`);
+          }
         }
       }
 
@@ -177,7 +198,7 @@ export class ChamadoService {
       this.logger.error(`Erro ao buscar chamado ${id}: ${error.message}`);
       throw error;
     }
-  }
+}
 
   async listarChamadosPorNomeArquivoId(nomeArquivoId: number): Promise<Chamado[]> {
     try {
