@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, ParseIntPipe, Param, Logger, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Query, ParseIntPipe, Param, Logger, NotFoundException, Patch } from '@nestjs/common';
 import { ChamadoService } from './chamado.service';
 import { Chamado } from '@prisma/client';
 
@@ -85,4 +85,12 @@ export class ChamadoController {
     return await this.chamadoService.listarChamadosPorNomeArquivoId(nomeArquivoId);
   }
 
+  @Patch('atualizar-keywords/:id')
+  async atualizarKeywords(
+    @Param('id') chamadoId: string,
+    @Body('keywords') keywords: any,
+  ) {
+    this.logger.log(`Recebendo atualização de keywords para o chamado ${chamadoId}`);
+    return await this.chamadoService.atualizarKeywords(chamadoId, keywords);
+  }
 }
